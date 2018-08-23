@@ -3,6 +3,8 @@ import { Exercise } from './exercise.model';
 import { Injectable } from '@angular/core';
 import { AngularFirestore } from 'angularfire2/firestore';
 import { map } from 'rxjs/operators';
+import { Subscription } from 'rxjs';
+import { UIService } from '../shared/ui.service';
 
 @Injectable()
 export class TrainingService {
@@ -10,15 +12,17 @@ export class TrainingService {
   exerciseChanged = new Subject<Exercise>();
   exercisesChanged = new Subject<Exercise[]>();
   finishedexercisesChanged = new Subject<Exercise[]>();
-
   private availableExercises: Exercise[] = [];
-
   private runningExercise: Exercise;
+  private fbSubs: Subscription[] = [];
 
-  constructor(private db: AngularFirestore) {}
+  constructor(private db: AngularFirestore, private uiService: UIService) {}
 
   fetchAvaliableExercises() {
-    this.db
+
+    this.uiService.loadingExercices.next(true);
+
+    this.fbSubs.push(this.db
     .collection<Exercise>('avaliableExercices')
     .snapshotChanges().pipe(map(docArray => {
         return docArray.map(doc => {
@@ -29,9 +33,14 @@ export class TrainingService {
                 };
         });
     })).subscribe( (exercises: Exercise[]) => {
+        this.uiService.loadingExercices.next(false);
         this.availableExercises = exercises;
         this.exercisesChanged.next([...this.availableExercises]);
-    });
+    }, error => {
+      this.uiService.loadingExercices.next(false);
+      this.uiService.showSnackbar('Fetching exercises failed, please try again later', null, 3000);
+      this.exerciseChanged.next(null);
+    }));
   }
 
   startExercise(selectedId: string) {
@@ -63,16 +72,20 @@ export class TrainingService {
 
 
   fetchCompletedOrCancelledExercises() {
-    this.db
+    this.fbSubs.push(this.db
     .collection('finishedExercises')
     .valueChanges()
     .subscribe((exercises: Exercise[]) => {
       this.finishedexercisesChanged.next(exercises);
-    });
+    }));
   }
 
   private addDataToDatabase(exercise: Exercise) {
     this.db.collection('finishedExercises').add(exercise);
+  }
+
+  cancelSubscriptions() {
+    this.fbSubs.forEach(sub => sub.unsubscribe());
   }
 
 }
